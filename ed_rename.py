@@ -64,7 +64,7 @@ LANGS = {
         "copied": "Скопировано в буфер!",
         "path_error": "Пути не найдены",
         "save_btn": "СОХРАНИТЬ",
-        "screen_dir": "Откуда брать (Steam/Frontier):",
+        "screen_dir": "Откуда брать:",
         "target_dir": "Куда сохранять (Опционально):",
         "logs_dir": "Папка логов Journal:",
         "naming_format": "ФОРМАТ ИМЕНИ:",
@@ -113,7 +113,7 @@ LANGS = {
         "copied": "Copied to clipboard!",
         "path_error": "Paths not found",
         "save_btn": "SAVE",
-        "screen_dir": "Source (Steam/Frontier):",
+        "screen_dir": "Source:",
         "target_dir": "Destination (Optional):",
         "logs_dir": "Journal logs folder:",
         "naming_format": "NAMING FORMAT:",
@@ -790,50 +790,63 @@ class Handler(FileSystemEventHandler):
         if not os.path.exists(path): return
         
         info = self.app.reader.get_info()
-        order = self.app.config.get("order", ["date", "time", "body", "coords"])
         
-        naming_parts = []
-        system_info_parts = []
-
-        for key in order:
-            if key == "date" and self.app.config.get("show_date"):
-                naming_parts.append(info['date'])
-            elif key == "time" and self.app.config.get("show_time"):
-                naming_parts.append(info['time'])
-            elif key == "body" and self.app.config.get("show_body") and info['body']:
-                system_info_parts.append(info['body'])
-            elif key == "coords" and self.app.config.get("show_coords") and info['coords']:
-                system_info_parts.append(info['coords'])
-
-        sys_str = info['system']
-        if system_info_parts: sys_str += " — " + " ".join(system_info_parts)
-        naming_parts.append(f"({sys_str})")
+        # 1. Собираем только дату и время (то, что идет ПЕРЕД скобками)
+        prefix_parts = []
+        if self.app.config.get("show_date"): prefix_parts.append(info['date'])
+        if self.app.config.get("show_time"): prefix_parts.append(info['time'])
+        prefix = " ".join(filter(None, prefix_parts))
         
+        # 2. Формируем содержимое скобок (Система — Планета — Координаты)
+        inner_parts = [info['system']]
+        
+        # Добавляем планету через тире, если она есть и включена в настройках
+        if self.app.config.get("show_body") and info['body']:
+            inner_parts.append(f"— {info['body']}")
+            
+        # Добавляем координаты, если они есть и включены
+        if self.app.config.get("show_coords") and info['coords']:
+            inner_parts.append(f"— {info['coords']}")
+            
+        inner_content = " ".join(filter(None, inner_parts))
+        
+        # 3. Собираем финальное имя: "Дата Время (Система — Тело)"
+        if prefix:
+            new_fn = f"{prefix} ({inner_content})"
+        else:
+            new_fn = f"({inner_content})"
+            
         conv_to = self.app.config.get('convert_to', 'none')
         ext = f".{conv_to}" if conv_to != 'none' else os.path.splitext(path)[1]
         
-        new_fn = f"{' '.join(naming_parts)}{ext}"
-        base_dir = self.app.config.get('target_dir') if self.app.config.get('target_dir') else self.app.config['screen_dir']
-        target = os.path.join(base_dir, info['system']) if self.app.config['use_folders'] else base_dir
+        target = os.path.join(self.app.config.get('target_dir') or self.app.config['screen_dir'], 
+                              info['system'] if self.app.config['use_folders'] else "")
         
         try:
             if not os.path.exists(target): os.makedirs(target)
-            new_path = os.path.join(target, new_fn)
-            if os.path.exists(new_path): new_path = os.path.join(target, f"{os.path.splitext(new_fn)[0]}_{int(time.time())}{ext}")
+            new_path = os.path.join(target, new_fn + ext)
+            
+            if os.path.exists(new_path): 
+                new_fn_with_ts = f"{new_fn}_{int(time.time())}"
+                new_path = os.path.join(target, new_fn_with_ts + ext)
+                final_log_name = new_fn_with_ts
+            else:
+                final_log_name = new_fn
             
             if conv_to != 'none':
                 img = Image.open(path)
-                if conv_to == 'jpg': img = img.convert("RGB")
-                img.save(new_path)
-                os.remove(path) 
+                (img.convert("RGB") if conv_to == 'jpg' else img).save(new_path)
+                os.remove(path)
             else:
                 shutil.move(path, new_path)
-                
-            self.app.root.after(100, lambda: self.app.add_log(f"{info['system']}", new_path))
-        except: pass
+            
+            self.app.root.after(100, lambda: self.app.add_log(final_log_name, new_path))
+            
+        except Exception as e:
+            print(f"Error processing screenshot: {e}")
 
-    def on_deleted(self, event):
-        if not event.is_directory: self.app.root.after(100, lambda: self.app.remove_log_by_path(event.src_path))
+    def on_deleted(self, event): 
+        self.app.root.after(100, lambda: self.app.remove_log_by_path(event.src_path))
 
 if __name__ == "__main__":
     instance = SingleInstance()
