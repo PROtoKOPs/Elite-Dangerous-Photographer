@@ -16,4 +16,4 @@ Just point the program to the path of your screenshots and logs folder (usually 
 
 Your story deserves beautiful names. Fly safe, Commander! o7
 
-Part of the code was written by an AI under the strict supervision of a live pilot. Bugs (if any) are a machine uprising; features are the result of collaboration.
+Part of the code was written by an AI under the strict supervision of a live pilot. Bugs (if any) are a machine uprising features are the result of collaboration.
