@@ -1,19 +1,30 @@
 # Elite Dangerous Renamer
-Tired of looking for files like Screenshot_0042.png and trying to remember where you saw that amazing double black hole or discovered an undiscovered Wolf-Rayet star? Elite Dangerous Renamer will become your personal assistant, quickly and neatly organizing your media library while you explore the reaches of space.
 
-Key Features:
+Elite Dangerous Renamer is an advanced tool for automating a space explorer's life. Stop guessing where that beautiful screenshot was taken! EDR picks up new captures on the fly, extracts data from game logs, and transforms standard Screenshot_0001.png files into informative ones containing system names, bodies, and even coordinates.
 
-* The program tracks your location. If you land on a planet, its coordinates will appear in the name. If you are in orbital flight, the planet number will be indicated after the system name.
-* Absolute software freedom: use any program to take screenshots. If a file enters the "monitored" folder, its name will change automatically.
-* Want to store screenshots in a separate folder? The program itself will move the renamed screenshots to the specified location.
-* Screenshot conversion: After finishing your photo session, you no longer have to worry about converting screenshots from .bmp to .png or .jpg formats, as the program will take care of this task.
-* In-app gallery: You can enjoy your photos without leaving the program. The built-in management tool allows you to easily view and delete images.
-* The utility is lightweight, easy to install and use, and does not strain the CPU.
+## Key Features
 
-Quick Start:
+* Real-time Monitoring: The application tracks a selected folder and automatically renames new screenshots.
+* Automatic Data Extraction:
+  * Current star system;
+  * Celestial body (planet/star);
+  * Exact surface coordinates or station name during docking.
+* Support for automatic conversion of heavy .bmp files into compact .png or .jpg formats.
+* Ability to automatically organize screenshots into folders named after systems and choose a separate folder for renamed images.
+* Built-in viewer with a grid and list view, including quick preview on hover.
+* Clipboard integration. Copy the screenshot itself or just the location coordinates with a single button.
 
-Just point the program to the path of your screenshots and logs folder (usually %userprofile%\Saved Games\Frontier Developments\Elite Dangerous). After that, click Save and return to the game.
+## Configuration (Name Format)
 
-Your story deserves beautiful names. Fly safe, Commander! o7
+You can fully customize the order of elements in the filename:
 
-Part of the code was written by an AI under the strict supervision of a live pilot. Bugs (if any) are a machine uprising features are the result of collaboration.
+1. Date (YYYY-MM-DD)
+2. Time (HH-MM-SS)
+3. Celestial Body
+4. Coordinates
+
+### Result Example: 2026-04-25 15-19-10 (Phrua Flyuae ZE-A e7 — A 3 a — [46.29, -120.97])
+
+Your history deserves beautiful names. Fly safe, Commander! o7
+
+> Part of the code was written by an AI under the strict supervision of a live pilot. Bugs (if any) are a machine uprising, features are the result of collaborative work.
