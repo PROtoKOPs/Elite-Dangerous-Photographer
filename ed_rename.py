@@ -27,7 +27,7 @@ except ImportError:
     winerror = None
 
 # ----- ВЕРСИЯ ПРИЛОЖЕНИЯ -----
-VERSION = "0.5"
+VERSION = "1.0"
 GITHUB_REPO = "PROtoKOPs/Elite-Dangerous-Renamer"
 CONFIG_FILE = "ed_config.json"
 CACHE_DB = "thumbs_cache.db"
@@ -64,8 +64,8 @@ LANGS = {
         "copied": "Скопировано в буфер!",
         "path_error": "Пути не найдены",
         "save_btn": "СОХРАНИТЬ",
-        "screen_dir": "Откуда брать:",
-        "target_dir": "Куда сохранять (Опционально):",
+        "screen_dir": "Папка скриншотов:",
+        "target_dir": "Папка сохранения скриншотов (опционально):",
         "logs_dir": "Папка логов Journal:",
         "naming_format": "ФОРМАТ ИМЕНИ:",
         "add_date": "Добавлять дату",
@@ -73,7 +73,7 @@ LANGS = {
         "add_body": "Добавлять название тела",
         "add_coords": "Добавлять координаты",
         "folders_label": "ПАПКИ И ФОРМАТ:",
-        "sort_folders": "Сортировать по папкам систем",
+        "sort_folders": "Сортировать по папкам с названием систем",
         "load_history": "Отображать скриншоты из папки (может замедлить запуск при большом количестве файлов)",
         "lang_label": "ЯЗЫК / LANGUAGE:",
         "select_lang_title": "Выбор языка / Select Language",
@@ -114,8 +114,8 @@ LANGS = {
         "copied": "Copied to clipboard!",
         "path_error": "Paths not found",
         "save_btn": "SAVE",
-        "screen_dir": "Source:",
-        "target_dir": "Destination (Optional):",
+        "screen_dir": "Screenshots Folder:",
+        "target_dir": "Screenshots Output Folder (optional):",
         "logs_dir": "Journal logs folder:",
         "naming_format": "NAMING FORMAT:",
         "add_date": "Add date",
@@ -123,7 +123,7 @@ LANGS = {
         "add_body": "Add body name",
         "add_coords": "Add coordinates",
         "folders_label": "FOLDERS & FORMAT:",
-        "sort_folders": "Sort into system folders",
+        "sort_folders": "Sort by folders with the system names",
         "load_history": "Display screenshots from folder (may slow down startup with many files)",
         "lang_label": "LANGUAGE:",
         "select_lang_title": "Select Language",
@@ -700,24 +700,35 @@ class App:
 
     def open_settings_window(self, is_initial=False):
         l = LANGS[self.config['lang']]
-        settings_win = tk.Toplevel(self.root); settings_win.title(l['settings'])
-        settings_win.geometry("500x850"); settings_win.configure(bg="#1e1e1e"); settings_win.grab_set()
+        settings_win = tk.Toplevel(self.root)
+        settings_win.title(l['settings'])
+        settings_win.geometry("500x750")
+        settings_win.configure(bg="#1e1e1e")
+        settings_win.grab_set()
         settings_win.resizable(False, False)
-        if is_initial: settings_win.protocol("WM_DELETE_WINDOW", self.root.quit)
+        
+        if is_initial: 
+            settings_win.protocol("WM_DELETE_WINDOW", self.root.quit)
 
-        container = tk.Frame(settings_win, bg="#1e1e1e"); container.pack(expand=True, fill="both", padx=30, pady=20)
+        container = tk.Frame(settings_win, bg="#1e1e1e")
+        container.pack(expand=True, fill="both", padx=30, pady=20)
+
+        # Поля ввода путей
         s_entry = self.create_field(container, l['screen_dir'], self.config.get('screen_dir', ""))
         t_entry = self.create_field(container, l['target_dir'], self.config.get('target_dir', "")) 
         l_entry = self.create_field(container, l['logs_dir'], self.config.get('logs_dir', ""))
-        tk.Button(container, text=l['check_updates'], bg="#333", fg="#ff8c00", 
-                  font=("Segoe UI", 8, "bold"), command=lambda: self.check_for_updates(False)).pack(pady=10)
+
+        # Выбор языка
         tk.Label(container, text=l['lang_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 5))
         lang_var = tk.StringVar(value=self.config.get('lang', 'RU'))
         tk.OptionMenu(container, lang_var, "RU", "EN").pack(anchor="w", fill="x", pady=(0, 10))
 
+        # Настройки формата
         tk.Label(container, text=l['naming_format'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 5))
         
-        format_frame = tk.Frame(container, bg="#1e1e1e"); format_frame.pack(fill="x")
+        format_frame = tk.Frame(container, bg="#1e1e1e")
+        format_frame.pack(fill="x")
+        
         vars = {
             "show_date": tk.BooleanVar(value=self.config.get('show_date', True)),
             "show_time": tk.BooleanVar(value=self.config.get('show_time', True)),
@@ -727,11 +738,13 @@ class App:
             "load_history": tk.BooleanVar(value=self.config.get('load_history', False))
         }
         
-        checks_frame = tk.Frame(format_frame, bg="#1e1e1e"); checks_frame.pack(side="left")
+        checks_frame = tk.Frame(format_frame, bg="#1e1e1e")
+        checks_frame.pack(side="left")
         for text, key in [(l['add_date'], "show_date"), (l['add_time'], "show_time"), (l['add_body'], "show_body"), (l['add_coords'], "show_coords")]:
             tk.Checkbutton(checks_frame, text=text, variable=vars[key], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
         
         self.temp_order = list(self.config.get("order", ["date", "time", "body", "coords"]))
+        
         def open_order():
             win = OrderWindow(settings_win, self.temp_order, l)
             settings_win.wait_window(win.win)
@@ -739,11 +752,12 @@ class App:
 
         tk.Button(container, text=l['format_order'], command=open_order, bg="#444", fg="white", font=("Segoe UI", 9, "bold"), pady=5).pack(anchor="w", pady=5)
 
+        # Сортировка и история
         tk.Label(container, text=l['folders_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(15, 5))
         tk.Checkbutton(container, text=l['sort_folders'], variable=vars["use_folders"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
-
         tk.Checkbutton(container, text=l['load_history'], variable=vars["load_history"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333", wraplength=400, justify="left").pack(anchor="w", pady=5)
 
+        # Конвертация
         conv_frame = tk.Frame(container, bg="#1e1e1e")
         conv_frame.pack(anchor="w", fill="x", pady=5)
         tk.Label(conv_frame, text=l['convert_label'], fg="#aaa", bg="#1e1e1e").pack(side="left")
@@ -754,6 +768,9 @@ class App:
         opt_menu.config(bg="#333", fg="white", width=10)
         opt_menu.pack(side="left", padx=10)
 
+        tk.Button(container, text=l['check_updates'], bg="#333", fg="#ff8c00", 
+                  font=("Segoe UI", 8, "bold"), command=lambda: self.check_for_updates(False)).pack(pady=(20, 10))
+
         def save():
             new_conf = {
                 "screen_dir": s_entry.get(), "target_dir": t_entry.get(), "logs_dir": l_entry.get(), "lang": lang_var.get(),
@@ -763,10 +780,13 @@ class App:
                 "order": self.temp_order, "convert_to": conv_var.get()
             }
             if os.path.exists(new_conf['screen_dir']) and os.path.exists(new_conf['logs_dir']):
-                self.save_config(new_conf); settings_win.destroy(); self.apply_theme_and_start()
-            else: messagebox.showerror("Error", l['path_error'])
+                self.save_config(new_conf)
+                settings_win.destroy()
+                self.apply_theme_and_start()
+            else: 
+                messagebox.showerror("Error", l['path_error'])
 
-        tk.Button(container, text=l['save_btn'], bg="#ff8c00", command=save, font=("Segoe UI", 10, "bold"), pady=5, width=20).pack(pady=25)
+        tk.Button(container, text=l['save_btn'], bg="#ff8c00", command=save, font=("Segoe UI", 10, "bold"), pady=5, width=20).pack(pady=(0, 25))
 
     def create_field(self, parent, label, val):
         tk.Label(parent, text=label, bg="#1e1e1e", fg="#aaa").pack(anchor="w")
