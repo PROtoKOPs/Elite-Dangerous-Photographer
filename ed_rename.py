@@ -27,7 +27,7 @@ except ImportError:
     winerror = None
 
 # ----- ВЕРСИЯ ПРИЛОЖЕНИЯ -----
-VERSION = "1.2"
+VERSION = "1.2.1"
 GITHUB_REPO = "PROtoKOPs/Elite-Dangerous-Photographer"
 CONFIG_FILE = "ed_config.json"
 CACHE_DB = "thumbs_cache.db"
@@ -81,10 +81,10 @@ LANGS = {
         "already_running": "Программа уже запущена!",
         "view_grid": "СЕТКА",
         "view_list": "СПИСОК",
-        "yes": "СОХРАНИТЬ",
+        "yes": "ДА",
         "no": "НЕТ",
-        "field_cmdr": "Имя командира",
-        "format_order": "ПОРЯДОК",
+	"save_order": "СОХРАНИТЬ",
+        "format_order": "НАСТРОИТЬ ПОРЯДОК",
         "order_title": "Порядок",
         "reset": "СБРОС",
         "up": "Выше",
@@ -119,8 +119,8 @@ LANGS = {
         "copied": "Copied to clipboard!",
         "path_error": "Paths not found",
         "save_btn": "SAVE",
-        "screen_dir": "Screenshots Folder:",
-        "target_dir": "Screenshots Output Folder (optional):",
+        "screen_dir": "Screenshots folder:",
+        "target_dir": "Screenshots output folder (optional):",
         "logs_dir": "Journal logs folder:",
         "naming_format": "NAMING FORMAT:",
         "add_date": "Add date",
@@ -136,10 +136,10 @@ LANGS = {
         "already_running": "Application is already running!",
         "view_grid": "GRID",
         "view_list": "LIST",
-        "yes": "SAVE",
+        "yes": "YES",
         "no": "NO",
-        "field_cmdr": "Commander Name",
-        "format_order": "ORDER",
+        "save_order": "SAVE",
+        "format_order": "CONSTRUCT ORDER",
         "order_title": "Order",
         "reset": "RESET",
         "up": "Up",
@@ -162,70 +162,6 @@ LANGS = {
     }
 }
 
-class OrderWindow:
-    def __init__(self, parent, current_order, lang_keys):
-        self.win = tk.Toplevel(parent)
-        self.win.title(lang_keys['order_title'])
-        self.win.geometry("340x370") 
-        self.win.resizable(False, False)
-        self.win.configure(bg="#1e1e1e")
-        self.win.grab_set()
-        
-        self.lang_keys = lang_keys
-        self.order = list(current_order)
-        self.default_order = ["date", "time", "body", "coords", "cmdr"]
-        
-        self.display_names = {
-            "date": lang_keys['field_date'],
-            "time": lang_keys['field_time'],
-            "body": lang_keys['field_body'],
-            "coords": lang_keys['field_coords'],
-            "cmdr": lang_keys.get('field_cmdr', 'Commander')
-        }
-
-        tk.Label(self.win, text=lang_keys['order_title'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 12, "bold")).pack(pady=10)
-        
-        self.listbox = tk.Listbox(self.win, bg="#333", fg="white", font=("Segoe UI", 10), selectbackground="#ff8c00", borderwidth=0, highlightthickness=0)
-        self.listbox.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        self.refresh_list()
-
-        btn_frame = tk.Frame(self.win, bg="#1e1e1e")
-        btn_frame.pack(pady=10)
-
-        tk.Button(btn_frame, text=lang_keys['up'], command=self.move_up, bg="#444", fg="white", width=9).pack(side="left", padx=5)
-        
-        tk.Button(btn_frame, text=lang_keys.get('reset', 'RESET'), command=self.reset_order, 
-                  bg="#333", fg="#ff8c00", font=("Segoe UI", 8, "bold"), width=9).pack(side="left", padx=5)
-        
-        tk.Button(btn_frame, text=lang_keys['down'], command=self.move_down, bg="#444", fg="white", width=9).pack(side="left", padx=5)
-
-        tk.Button(self.win, text=lang_keys['yes'], command=self.win.destroy, bg="#ff8c00", fg="black", font=("Segoe UI", 9, "bold"), width=15).pack(pady=15)
-
-    def refresh_list(self):
-        self.listbox.delete(0, tk.END)
-        for item in self.order:
-            self.listbox.insert(tk.END, self.display_names.get(item, item))
-
-    def reset_order(self):
-        self.order = list(self.default_order)
-        self.refresh_list()
-
-    def move_up(self):
-        idx = self.listbox.curselection()
-        if idx and idx[0] > 0:
-            i = idx[0]
-            self.order[i], self.order[i-1] = self.order[i-1], self.order[i]
-            self.refresh_list()
-            self.listbox.selection_set(i-1)
-
-    def move_down(self):
-        idx = self.listbox.curselection()
-        if idx and idx[0] < len(self.order) - 1:
-            i = idx[0]
-            self.order[i], self.order[i+1] = self.order[i+1], self.order[i]
-            self.refresh_list()
-            self.listbox.selection_set(i+1)
 
 class CustomConfirm:
     def __init__(self, parent, title, message, lang_keys):
@@ -331,7 +267,7 @@ class EliteJournalReader:
         
         display_coords = self.coords
         if self.current_station:
-            display_coords = f"({self.current_station})"
+            display_coords = f"[{self.current_station}]"
 
        
         if time_mode == 'utc':
@@ -421,8 +357,6 @@ class App:
             try:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
-                    if "order" not in cfg:
-                        cfg["order"] = ["date", "time", "body", "coords", "cmdr"]
                     if "target_dir" not in cfg:
                         cfg["target_dir"] = ""
                     if "convert_to" not in cfg:
@@ -446,7 +380,6 @@ class App:
         def set_lang(l):
             self.config = {
                 "lang": l, 
-                "order": ["date", "time", "body", "coords"], 
                 "target_dir": "", 
                 "convert_to": "none",
                 "use_folders": False,
@@ -668,16 +601,32 @@ class App:
             self.add_to_grid(entry, path, at_start=True); self.reposition_grid()
 
     def remove_log_by_path(self, path):
+        target_path = os.path.normcase(os.path.abspath(path))
+        
         if self.view_mode == "list":
-            entry_to_remove = next((e for e, p in self.file_map.items() if p == path), None)
+            
+            entry_to_remove = next((e for e, p in self.file_map.items() 
+                                   if os.path.normcase(os.path.abspath(p)) == target_path), None)
             if entry_to_remove:
                 for i in range(self.log_box.size()):
-                    if self.log_box.get(i) == entry_to_remove: self.log_box.delete(i); break
+                    if self.log_box.get(i) == entry_to_remove: 
+                        self.log_box.delete(i)
+                        break
                 del self.file_map[entry_to_remove]
         else:
-            for i, (f, p) in enumerate(self.grid_widgets):
-                if p == path: f.destroy(); self.grid_widgets.pop(i); break
-            if path in self.grid_photos: del self.grid_photos[path]
+            
+            for i, (frame, p) in enumerate(self.grid_widgets):
+                if os.path.normcase(os.path.abspath(p)) == target_path:
+                    frame.destroy()
+                    self.grid_widgets.pop(i)
+                    break
+            
+           
+            keys_to_del = [k for k in self.grid_photos.keys() 
+                          if os.path.normcase(os.path.abspath(k)) == target_path]
+            for k in keys_to_del:
+                del self.grid_photos[k]
+                
             self.reposition_grid()
 
     def show_tooltip(self, event, text):
@@ -769,19 +718,8 @@ class App:
         for text, key in [(l['add_date'], "show_date"), (l['add_time'], "show_time"), (l['add_body'], "show_body"), (l['add_coords'], "show_coords")]:
             tk.Checkbutton(checks_frame, text=text, variable=vars[key], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
             
-        current_order = list(self.config.get("order", ["date", "time", "body", "coords"]))
-        if "cmdr" not in current_order:
-            current_order.append("cmdr")
-        self.temp_order = current_order
         tk.Checkbutton(checks_frame, text=l['add_cmdr'], variable=vars["show_cmdr"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
-        def open_order():
-            win = OrderWindow(settings_win, self.temp_order, l)
-            settings_win.wait_window(win.win)
-            self.temp_order = win.order
-
-        tk.Button(container, text=l['format_order'], command=open_order, bg="#444", fg="white", font=("Segoe UI", 9, "bold"), pady=5).pack(anchor="w", pady=5)
-
-       
+        
         tk.Label(container, text=l['folders_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(15, 5))
         tk.Checkbutton(container, text=l['sort_folders'], variable=vars["use_folders"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
         tk.Checkbutton(container, text=l['load_history'], variable=vars["load_history"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333", wraplength=400, justify="left").pack(anchor="w", pady=5)
@@ -807,8 +745,7 @@ class App:
                 "show_body": vars["show_body"].get(), "show_coords": vars["show_coords"].get(),
                 "use_folders": vars["use_folders"].get(), "load_history": vars["load_history"].get(),
                 "time_mode": time_mode_var.get(),
-                "show_cmdr": vars["show_cmdr"].get(),
-                "order": self.temp_order, "convert_to": conv_var.get()
+                "show_cmdr": vars["show_cmdr"].get()
             }
             if os.path.exists(new_conf['screen_dir']) and os.path.exists(new_conf['logs_dir']):
                 self.save_config(new_conf)
@@ -876,46 +813,38 @@ class App:
                 except Exception as e: messagebox.showerror("Error", str(e))
 
 class Handler(FileSystemEventHandler):
-    def __init__(self, app): 
-        self.app = app
-
+    def __init__(self, app): self.app = app
     def on_created(self, event):
-        if event.is_directory or not event.src_path.lower().endswith(('.png', '.jpg', '.bmp')): 
-            return
+        if event.is_directory or not event.src_path.lower().endswith(('.png', '.jpg', '.bmp')): return
         path = event.src_path
-        if os.path.dirname(os.path.abspath(path)) != os.path.abspath(self.app.config['screen_dir']): 
-            return
+        if os.path.dirname(os.path.abspath(path)) != os.path.abspath(self.app.config['screen_dir']): return
         
         time.sleep(1.5) 
-        if not os.path.exists(path): 
-            return
+        if not os.path.exists(path): return
         
         info = self.app.reader.get_info(time_mode=self.app.config.get('time_mode', 'local'))
 
+        prefix_parts = []
+        if self.app.config.get("show_date"): prefix_parts.append(info['date'])
+        if self.app.config.get("show_time"): prefix_parts.append(info['time'])
+        prefix = " ".join(filter(None, prefix_parts))
 
-        order = self.app.config.get("order", ["date", "time", "body", "coords", "cmdr"])
+        inner_parts = [info['system']]
 
+        if self.app.config.get("show_body") and info['body']:
+            inner_parts.append(f"— {info['body']}")
 
-        name_parts = []
-        for key in order:
-            if key == "date" and self.app.config.get("show_date"):
-                name_parts.append(info['date'])
-            elif key == "time" and self.app.config.get("show_time"):
-                name_parts.append(info['time'])
-            elif key == "body" and self.app.config.get("show_body") and info['body']:
-                name_parts.append(f"({info['body']})")
-            elif key == "coords" and self.app.config.get("show_coords") and info['coords']:
-                name_parts.append(info['coords'])
-            elif key == "cmdr" and self.app.config.get("show_cmdr") and info.get('cmdr'):
-                name_parts.append(info['cmdr'])
+        if self.app.config.get("show_coords") and info['coords']:
+            inner_parts.append(f"— {info['coords']}")
+            
+        inner_content = " ".join(filter(None, inner_parts))
 
-
-        if name_parts:
-            new_fn = " ".join(filter(None, name_parts))
+        if prefix:
+            new_fn = f"{prefix} ({inner_content})"
         else:
-            new_fn = info['system']
-
-
+            new_fn = f"({inner_content})"
+        if self.app.config.get("show_cmdr") and info.get('cmdr'):
+            new_fn = f"{new_fn} {info['cmdr']}"
         conv_to = self.app.config.get('convert_to', 'none')
         ext = f".{conv_to}" if conv_to != 'none' else os.path.splitext(path)[1]
         
@@ -946,7 +875,9 @@ class Handler(FileSystemEventHandler):
             print(f"Error processing screenshot: {e}")
 
     def on_deleted(self, event): 
-        self.app.root.after(100, lambda: self.app.remove_log_by_path(event.src_path))
+        if event.is_directory: return
+        deleted_path = os.path.abspath(event.src_path)
+        self.app.root.after(100, lambda: self.app.remove_log_by_path(deleted_path))
 
 if __name__ == "__main__":
     instance = SingleInstance()
