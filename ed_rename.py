@@ -353,7 +353,7 @@ class App:
         else:
             self.apply_theme_and_start()
             Thread(target=self.check_for_updates, args=(True,), daemon=True).start()
-
+     
     def check_for_updates(self, silent=True):
         l = LANGS[self.config['lang']]
         try:
@@ -392,7 +392,34 @@ class App:
         self.executor.shutdown(wait=False)
         self.root.destroy()
         os._exit(0)
+    def check_width_for_burger(self, event):
+        # Если это событие самого главного окна (а не его дочерних элементов)
+        if event.widget == self.root:
+            # Порог ширины (например, 650 пикселей), при котором кнопки начинают тесниться
+            threshold = 650 
+            if event.width < threshold:
+                self.full_btn_frame.pack_forget() # Прячем панель кнопок
+                self.burger_btn.pack(side="right", padx=20) # Показываем бургер
+            else:
+                self.burger_btn.pack_forget() # Прячем бургер
+                self.full_btn_frame.pack(side="right", padx=20) # Возвращаем кнопки
 
+    def show_burger_menu(self):
+        self.burger_menu.delete(0, tk.END)
+        l = LANGS[self.config['lang']]
+        
+        # Добавляем пункты в меню
+        self.burger_menu.add_command(label=self.buttons_data[0][0], command=self.buttons_data[0][1])
+        # Переключатель мониторинга прямо в меню
+        mon_label = f"✓ {l['monitoring_active']}" if self.monitoring_on.get() else l['monitoring_off']
+        self.burger_menu.add_command(label=mon_label, command=lambda: [self.monitoring_on.set(not self.monitoring_on.get()), self.toggle_monitoring()])
+        self.burger_menu.add_separator()
+        self.burger_menu.add_command(label=self.buttons_data[1][0], command=self.buttons_data[1][1])
+        
+        # Показываем меню под кнопкой бургера
+        x = self.burger_btn.winfo_rootx()
+        y = self.burger_btn.winfo_rooty() + self.burger_btn.winfo_height()
+        self.burger_menu.post(x, y)
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
@@ -470,6 +497,8 @@ class App:
         l = LANGS[self.config['lang']]
         self.root.deiconify() 
         self.root.title(l['title'].format(VERSION=VERSION))
+        
+        # Установка иконок
         icon_path = resource_path("Edr.ico")
         if os.path.exists(icon_path):
             try:
@@ -477,13 +506,10 @@ class App:
                 import ctypes
                 myappid = f'proto.edrenamer.v{VERSION}' 
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-            except Exception as e:
-                try:
-                    img = ImageTk.PhotoImage(Image.open(icon_path))
-                    self.root.tk.call('wm', 'iconphoto', self.root._w, img)
-                except:
-                    print(f"Icon loading failed: {e}")
+            except: pass
+
         self.root.geometry("950x750")
+        self.root.minsize(400, 300)
         self.root.configure(bg="#1e1e1e")
         self.show_main_interface()
 
@@ -491,46 +517,57 @@ class App:
         for widget in self.root.winfo_children(): widget.destroy()
         l = LANGS[self.config['lang']]
         
-        header = tk.Frame(self.root, bg="#2d2d2d", height=60)
-        header.pack(fill="x", side="top")
+        self.header = tk.Frame(self.root, bg="#2d2d2d", height=60)
+        self.header.pack(fill="x", side="top")
         
         status_text = l['monitoring_active'] if self.monitoring_on.get() else l['monitoring_off']
         status_color = "#00ff00" if self.monitoring_on.get() else "#ff4444"
         
-        self.status_label = tk.Label(header, text=status_text, fg=status_color, bg="#2d2d2d", font=("Segoe UI", 10, "bold"))
+        self.status_label = tk.Label(self.header, text=status_text, fg=status_color, bg="#2d2d2d", font=("Segoe UI", 10, "bold"))
         self.status_label.pack(side="left", padx=20, pady=15)
 
-        btn_frame = tk.Frame(header, bg="#2d2d2d")
-        btn_frame.pack(side="right", padx=20)
+        # Контейнер для обычных кнопок
+        self.full_btn_frame = tk.Frame(self.header, bg="#2d2d2d")
+        self.full_btn_frame.pack(side="right", padx=20)
 
-        self.view_btn = tk.Button(btn_frame, text=l['view_grid'] if self.view_mode == "list" else l['view_list'], 
-                                  bg="#444", fg="white", relief="flat", command=self.toggle_view, width=8)
+        # Сами кнопки (сохраняем в self, чтобы обращаться из меню)
+        self.buttons_data = [
+            (l['view_grid'] if self.view_mode == "list" else l['view_list'], self.toggle_view),
+            (l['settings'], self.open_settings_window)
+        ]
+
+        # Кнопки для полной панели
+        self.view_btn = tk.Button(self.full_btn_frame, text=self.buttons_data[0][0], 
+                                  bg="#444", fg="white", relief="flat", command=self.buttons_data[0][1], width=10)
         self.view_btn.pack(side="left", padx=5)
 
-        self.toggle_btn = tk.Checkbutton(btn_frame, text="ON/OFF", variable=self.monitoring_on, 
+        self.toggle_btn = tk.Checkbutton(self.full_btn_frame, text="ON/OFF", variable=self.monitoring_on, 
                                          command=self.toggle_monitoring, bg="#444", fg="white", 
                                          selectcolor="#ff8c00", indicatoron=False, relief="flat", padx=10)
         self.toggle_btn.pack(side="left", padx=5)
 
-        tk.Button(btn_frame, text=l['settings'], bg="#444", fg="white", relief="flat", command=self.open_settings_window).pack(side="left", padx=5)
+        self.settings_btn = tk.Button(self.full_btn_frame, text=self.buttons_data[1][0], 
+                                      bg="#444", fg="white", relief="flat", command=self.buttons_data[1][1], width=10)
+        self.settings_btn.pack(side="left", padx=5)
 
+        # Кнопка БУРГЕР (изначально скрыта)
+        self.burger_btn = tk.Button(self.header, text="☰", bg="#2d2d2d", fg="#ff8c00", 
+                                    font=("Segoe UI", 16, "bold"), relief="flat", command=self.show_burger_menu)
+        
+        # Создаем выпадающее меню для бургера
+        self.burger_menu = tk.Menu(self.root, tearoff=0, bg="#2d2d2d", fg="white", activebackground="#ff8c00", font=("Segoe UI", 10))
+
+        # Контент
         self.content_frame = tk.Frame(self.root, bg="#1e1e1e")
-        self.content_frame.pack(fill="both", expand=True, padx=0, pady=(5, 5))
-
-        self.menu = tk.Menu(self.root, tearoff=0, bg="#2d2d2d", fg="white", activebackground="#ff8c00")
-        self.menu.add_command(label=l['open'], command=self.open_file)
-        self.menu.add_command(label=l['go_to_file'], command=self.open_folder)
-        self.menu.add_command(label=l['copy'], command=self.copy_to_clipboard)
-        self.menu.add_command(label=l['copy_location'], command=self.copy_location_to_clipboard)
-        self.menu.add_separator()
-        self.menu.add_command(label=l['delete'], command=self.delete_file, foreground="red")
+        self.content_frame.pack(fill="both", expand=True)
 
         if self.view_mode == "list": self.setup_list_view()
         else: self.setup_grid_view()
 
-        tk.Label(self.root, text=l['credits'], fg="#444", bg="#1e1e1e", font=("Consolas", 8, "italic")).pack(side="bottom", pady=5)
+        # Привязываем проверку ширины при изменении размера окна
+        self.root.bind("<Configure>", self.check_width_for_burger)
+
         self.reader = EliteJournalReader(self.config['logs_dir'])
-        
         if self.config.get('load_history', False): self.load_history_list()
         if self.monitoring_on.get(): self.start_watching()
 
@@ -754,26 +791,51 @@ class App:
         l = LANGS[self.config['lang']]
         settings_win = tk.Toplevel(self.root)
         settings_win.title(l['settings'])
+        
+        # --- ИСПРАВЛЕНИЕ: Логика размера и скролла ---
+        settings_win.resizable(False, True)
         settings_win.geometry("500x890")
+        settings_win.minsize(500, 400) # Минимально допустимая высота окна
         settings_win.configure(bg="#1e1e1e")
         settings_win.grab_set()
-        settings_win.resizable(False, False)
         
         if is_initial: 
             settings_win.protocol("WM_DELETE_WINDOW", self.root.quit)
 
-        container = tk.Frame(settings_win, bg="#1e1e1e")
-        container.pack(expand=True, fill="both", padx=30, pady=20)
+        # Создаем Canvas и Scrollbar для прокрутки
+        canvas = tk.Canvas(settings_win, bg="#1e1e1e", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(settings_win, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg="#1e1e1e")
 
-     
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=480)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Упаковка скролла
+        canvas.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        scrollbar.pack(side="right", fill="y")
+
+        # Привязка колесика мыши
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        container = tk.Frame(scrollable_frame, bg="#1e1e1e")
+        container.pack(expand=True, fill="both", padx=20, pady=20)
+
+        # --- Дальше идет твой существующий код полей внутри container ---
         s_entry = self.create_field(container, l['screen_dir'], self.config.get('screen_dir', ""))
         t_entry = self.create_field(container, l['target_dir'], self.config.get('target_dir', "")) 
         l_entry = self.create_field(container, l['logs_dir'], self.config.get('logs_dir', ""))
 
-      
         tk.Label(container, text=l['lang_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 5))
         lang_var = tk.StringVar(value=self.config.get('lang', 'RU'))
         tk.OptionMenu(container, lang_var, "RU", "EN").pack(anchor="w", fill="x", pady=(0, 10))
+
         tk.Label(container, text=l['time_mode_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 5))
         time_mode_var = tk.StringVar(value=self.config.get('time_mode', 'local'))
         tm_frame = tk.Frame(container, bg="#1e1e1e")
@@ -782,9 +844,6 @@ class App:
         tk.Radiobutton(tm_frame, text=l['time_utc'], variable=time_mode_var, value='utc', bg="#1e1e1e", fg="white", selectcolor="#333").pack(side="left", padx=5)
         
         tk.Label(container, text=l['naming_format'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 5))
-        
-        format_frame = tk.Frame(container, bg="#1e1e1e")
-        format_frame.pack(fill="x")
         
         vars = {
             "show_date": tk.BooleanVar(value=self.config.get('show_date', True)),
@@ -796,18 +855,13 @@ class App:
             "load_history": tk.BooleanVar(value=self.config.get('load_history', False))
         }
         
-        checks_frame = tk.Frame(format_frame, bg="#1e1e1e")
-        checks_frame.pack(side="left")
-        for text, key in [(l['add_date'], "show_date"), (l['add_time'], "show_time"), (l['add_body'], "show_body"), (l['add_coords'], "show_coords")]:
-            tk.Checkbutton(checks_frame, text=text, variable=vars[key], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
-            
-        tk.Checkbutton(checks_frame, text=l['add_cmdr'], variable=vars["show_cmdr"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
+        for text, key in [(l['add_date'], "show_date"), (l['add_time'], "show_time"), (l['add_body'], "show_body"), (l['add_coords'], "show_coords"), (l['add_cmdr'], "show_cmdr")]:
+            tk.Checkbutton(container, text=text, variable=vars[key], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
         
         tk.Label(container, text=l['folders_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(15, 5))
         tk.Checkbutton(container, text=l['sort_folders'], variable=vars["use_folders"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
         tk.Checkbutton(container, text=l['load_history'], variable=vars["load_history"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333", wraplength=400, justify="left").pack(anchor="w", pady=5)
 
-       
         conv_frame = tk.Frame(container, bg="#1e1e1e")
         conv_frame.pack(anchor="w", fill="x", pady=5)
         tk.Label(conv_frame, text=l['convert_label'], fg="#aaa", bg="#1e1e1e").pack(side="left")
@@ -819,30 +873,15 @@ class App:
         opt_menu.pack(side="left", padx=10)
 
         tk.Label(container, text=l['sound_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(15, 5))
-        
-
         sounds_path = get_sounds_dir()
         wav_files = [f for f in os.listdir(sounds_path) if f.endswith('.wav')]
-        
-
         sound_options = ["none", "Windows Default"] + wav_files
-        
         sound_var = tk.StringVar(value=self.config.get('success_sound', 'none'))
-        
-
-        if sound_var.get() not in sound_options:
-            sound_var.set("none")
-
         sound_menu = tk.OptionMenu(container, sound_var, *sound_options)
-        sound_menu.config(bg="#333", fg="white", activebackground="#ff8c00")
+        sound_menu.config(bg="#333", fg="white")
         sound_menu.pack(anchor="w", fill="x")
 
-
-        hint_text = "Place your .wav files into /sounds folder" if self.config['lang'] == "EN" else "Положите .wav файлы в папку sounds"
-        tk.Label(container, text=hint_text, fg="#555", bg="#1e1e1e", font=("Segoe UI", 8, "italic")).pack(anchor="w", pady=(2, 0))
-
-        tk.Button(container, text=l['check_updates'], bg="#333", fg="#ff8c00", 
-                  font=("Segoe UI", 8, "bold"), command=lambda: self.check_for_updates(False)).pack(pady=(20, 10))
+        tk.Button(container, text=l['check_updates'], bg="#333", fg="#ff8c00", command=lambda: self.check_for_updates(False)).pack(pady=(20, 10))
 
         def save():
             new_conf = {
@@ -850,20 +889,19 @@ class App:
                 "show_date": vars["show_date"].get(), "show_time": vars["show_time"].get(),
                 "show_body": vars["show_body"].get(), "show_coords": vars["show_coords"].get(),
                 "use_folders": vars["use_folders"].get(), "load_history": vars["load_history"].get(),
-                "time_mode": time_mode_var.get(),
-                "show_cmdr": vars["show_cmdr"].get(),
-                "success_sound": sound_var.get(),
-                "convert_to": conv_var.get()
+                "time_mode": time_mode_var.get(), "show_cmdr": vars["show_cmdr"].get(),
+                "success_sound": sound_var.get(), "convert_to": conv_var.get()
             }
             if os.path.exists(new_conf['screen_dir']) and os.path.exists(new_conf['logs_dir']):
                 self.save_config(new_conf)
+                # Отвязываем события мыши перед закрытием
+                canvas.unbind_all("<MouseWheel>")
                 settings_win.destroy()
                 self.apply_theme_and_start()
             else: 
                 messagebox.showerror("Error", l['path_error'])
-
-        tk.Button(container, text=l['save_btn'], bg="#ff8c00", command=save, font=("Segoe UI", 10, "bold"), pady=5, width=20).pack(pady=(0, 25))
-
+        
+        tk.Button(container, text=l['save_btn'], bg="#ff8c00", command=save, font=("Segoe UI", 10, "bold"), width=20).pack(pady=(0, 25))
     def create_field(self, parent, label, val):
         tk.Label(parent, text=label, bg="#1e1e1e", fg="#aaa").pack(anchor="w")
         f = tk.Frame(parent, bg="#1e1e1e"); f.pack(fill="x", pady=(0, 10))
