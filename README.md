@@ -16,7 +16,7 @@ Elite Dangerous Photographer is an advanced tool for automating a space explorer
 
 ## Configuration (Name Format)
 
-You can fully customize the order of elements in the filename:
+You can fully customize what is included the filename:
 
 1. Date (YYYY-MM-DD)
 2. Time (HH-MM-SS)
