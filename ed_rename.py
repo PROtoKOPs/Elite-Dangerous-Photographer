@@ -1,9 +1,16 @@
+import logging
+logging.basicConfig(
+    filename='ed_photographer.log', 
+    level=logging.ERROR, 
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 import os
 import sys
 import time
 import json
 import re
 import shutil
+import hashlib
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from watchdog.observers import Observer
@@ -31,8 +38,17 @@ except ImportError:
     win32clipboard = None
     winerror = None
 
+
+try:
+    import pygame
+    pygame.mixer.init()
+except ImportError:
+    logging.error("Pygame не установлен! Звук с регулировкой громкости работать не будет.")
+    pygame = None
+    
+    
 # ----- ВЕРСИЯ ПРИЛОЖЕНИЯ -----
-VERSION = "1.3"
+VERSION = "1.4"
 GITHUB_REPO = "PROtoKOPs/Elite-Dangerous-Photographer"
 CONFIG_FILE = "ed_config.json"
 CACHE_DB = "thumbs_cache.db"
@@ -42,6 +58,8 @@ MUTEX_NAME = "Global\\EliteExplorerAssistantPro_Unique_Mutex_ID"
 def init_cache_db():
     conn = sqlite3.connect(CACHE_DB)
     cursor = conn.cursor()
+    
+    cursor.execute('PRAGMA journal_mode=WAL;')
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS cache (
             hash TEXT PRIMARY KEY,
@@ -49,6 +67,14 @@ def init_cache_db():
             timestamp REAL
         )
     ''')
+    
+
+    cursor.execute(f'''
+        DELETE FROM cache WHERE hash NOT IN (
+            SELECT hash FROM cache ORDER BY timestamp DESC LIMIT {MAX_CACHE_SIZE}
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -88,7 +114,7 @@ LANGS = {
         "view_list": "СПИСОК",
         "yes": "ДА",
         "no": "НЕТ",
-	"save_order": "СОХРАНИТЬ",
+	    "save_order": "СОХРАНИТЬ",
         "format_order": "НАСТРОИТЬ ПОРЯДОК",
         "order_title": "Порядок",
         "reset": "СБРОС",
@@ -100,11 +126,11 @@ LANGS = {
         "field_coords": "Координаты",
         "convert_label": "Конвертировать в:",
         "none": "Нет",
-"time_mode_label": "ФОРМАТ ВРЕМЕНИ:",
-"time_local": "Местное",
-"time_utc": "Игровое (UTC)",
-"add_cmdr": "Добавлять имя командира",
-"sound_label": "ЗВУК УВЕДОМЛЕНИЯ:",
+        "time_mode_label": "ФОРМАТ ВРЕМЕНИ:",
+        "time_local": "Местное",
+        "time_utc": "Игровое (UTC)",
+        "add_cmdr": "Добавлять имя командира",
+        "sound_label": "ЗВУК УВЕДОМЛЕНИЯ:",
         "check_updates": "ПРОВЕРИТЬ ОБНОВЛЕНИЯ",
         "upd_found": "Доступно обновление!",
         "upd_msg": "Найдена новая версия {v}. Открыть страницу загрузки?",
@@ -114,7 +140,10 @@ LANGS = {
         "tray_screenshots": "Открыть папку скриншотов",
         "tray_program": "Открыть папку программы",
         "tray_settings": "Настройки",
-        "tray_exit": "Выход"
+        "tray_exit": "Выход",
+        "volume_label": "ГРОМКОСТЬ:",
+        "test_sound": "Тест звука",
+        "minimize_on_close": "Сворачивать в трей при закрытии (на крестик)"
     },
     "EN": {
         "title": "Elite Dangerous Photographer v{VERSION}",
@@ -161,11 +190,11 @@ LANGS = {
         "field_coords": "Coordinates",
         "convert_label": "Convert to:",
         "none": "None",
-"time_mode_label": "TIME MODE:",
-"time_local": "Local",
-"time_utc": "In-game (UTC)",
-"add_cmdr": "Add Commander name",
-"sound_label": "NOTIFICATION SOUND:",
+        "time_mode_label": "TIME MODE:",
+        "time_local": "Local",
+        "time_utc": "In-game (UTC)",
+        "add_cmdr": "Add Commander name",
+        "sound_label": "NOTIFICATION SOUND:",
         "check_updates": "CHECK FOR UPDATES",
         "upd_found": "Update available!",
         "upd_msg": "New version {v} is available. Open download page?",
@@ -175,7 +204,10 @@ LANGS = {
         "tray_screenshots": "Open Screenshots Folder",
         "tray_program": "Open Program Folder",
         "tray_settings": "Settings",
-        "tray_exit": "Exit"
+        "tray_exit": "Exit",
+        "volume_label": "VOLUME:",
+        "test_sound": "Test sound",
+        "minimize_on_close": "Minimize to tray on close (X button)"
     }
 }
 
@@ -293,11 +325,18 @@ class EliteJournalReader:
 
                             elif event in ['ApproachBody', 'Touchdown']:
                                 self.current_body = data.get('Body', self.current_body)
-                            elif event == 'Liftoff' or event == 'LeaveBody':
-                                if event == 'LeaveBody': self.current_body = ""
+                           
+                            elif event in ['Liftoff', 'LeaveBody', 'SupercruiseEntry']:
+                                if event in ['LeaveBody', 'SupercruiseEntry']: 
+                                    self.current_body = ""
                                 self.coords = ""
+                                self.current_station = ""
 
-                        except: continue
+                        except json.JSONDecodeError:
+                            continue # Обычное дело для недописанного лога
+                        except Exception as e:
+                            logging.error(f"Ошибка парсинга строки Journal: {e}")
+                            continue
 
             status_path = os.path.join(self.logs_dir, 'Status.json')
             if os.path.exists(status_path):
@@ -315,7 +354,7 @@ class EliteJournalReader:
                         pass
                         
         except Exception as e:
-            print(f"Update state error: {e}")
+            logging.error(f"Error parsing journal line: {e}")
 
     def get_info(self, time_mode='local'):
         self.update_state()
@@ -347,7 +386,7 @@ def resource_path(relative_path):
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
         self.root.withdraw() 
         self.observer = None
         self.file_map = {} 
@@ -362,7 +401,10 @@ class App:
         self.all_files = [] 
         self.executor = ThreadPoolExecutor(max_workers=4)
         self.root.bind("<Unmap>", lambda e: self.on_minimize(e))
-
+        self.settings_win = None
+        self.settings_canvas = None
+        
+        
         if not self.config:
             self.first_run_language_select()
         else:
@@ -370,6 +412,13 @@ class App:
             self.apply_theme_and_start()
 
         Thread(target=self.check_for_updates, args=(True,), daemon=True).start()
+    def _on_grid_mousewheel(self, event):
+        if hasattr(self, 'grid_canvas') and self.grid_canvas.winfo_exists():
+            self.grid_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _on_settings_mousewheel(self, event):
+        if hasattr(self, 'settings_canvas') and self.settings_canvas.winfo_exists():
+            self.settings_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def on_minimize(self, event):
         if self.root.state() == 'iconic':
@@ -405,23 +454,63 @@ class App:
         tk.Label(upd_bar, text=f"{l['upd_found']} ({version})", bg="#ff8c00", fg="black", font=("Segoe UI", 9, "bold")).pack(side="left", padx=10)
         tk.Button(upd_bar, text="DOWNLOAD", bg="black", fg="white", relief="flat", font=("Segoe UI", 8), 
                   command=lambda: webbrowser.open(f"https://github.com/{GITHUB_REPO}/releases")).pack(side="right", padx=10)
-    
     def hide_window(self):
 
         self.root.withdraw()
         self.create_tray_icon()
 
-    def show_window(self, icon=None):
+    def show_window(self, icon=None, item=None):
+
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.stop()
+        self.root.after(0, self._deiconify_window)
+
+    def _deiconify_window(self):
+        self.root.deiconify()
+        self.root.state('normal')
+        self.root.lift()
+        self.root.focus_force()
+
+    def toggle_window(self, icon=None, item=None):
+
+        if self.root.state() == 'withdrawn' or self.root.state() == 'iconic':
+            self.show_window(icon, item)
+        else:
+            self.root.after(0, self.hide_window)
+
+    def exit_action(self, icon=None, item=None):
 
         if icon:
             icon.stop()
-        self.root.after(0, self.root.deiconify)
+        self.root.after(0, self.on_closing)
+    def on_window_close(self):
+        if self.config.get('minimize_on_close', False):
+            self.hide_window()
+        else:
+            self.exit_action()
+    def on_closing(self):
+        try:
+            self.config['window_geometry'] = self.root.geometry()
+            self.save_config(self.config)
+            if self.observer:
+                self.observer.stop()
+        except Exception as e: 
+            logging.error(f"Error saving config on exit: {e}")
+        
+        if hasattr(self, 'tray_icon'):
+            try:
+                self.tray_icon.stop()
+            except: pass
+            
+        self.executor.shutdown(wait=False)
+        self.root.destroy()
+        os._exit(0)
 
     def create_tray_icon(self):
         l = LANGS[self.config['lang']]
         
         base_path = get_base_path()
-        icon_path = os.path.join(base_path, "Edr.ico")
+        icon_path = os.path.join(base_path, "Edp.ico")
 
         try:
             image = Image.open(icon_path)
@@ -429,22 +518,22 @@ class App:
             image = Image.new('RGB', (64, 64), (0, 120, 215))
 
         def open_src():
-
-            path = self.config.get('watch_dir', '')
+            path = self.config.get('screen_dir', '')
             if path and os.path.exists(path):
                 os.startfile(os.path.normpath(path))
             else:
                 messagebox.showwarning(l.get('error', 'Error'), f"{l.get('path_error', 'Path not found')}:\n{path}")
 
         def open_dst():
-
-            path = self.config.get('target_dir') or self.config.get('watch_dir', '')
-            
+            path = self.config.get('target_dir')
+            if not path or not os.path.exists(path):
+                path = self.config.get('screen_dir', '')
+                
             if path and os.path.exists(path):
                 os.startfile(os.path.normpath(path))
             else:
                 messagebox.showwarning(l.get('error', 'Error'), f"{l.get('path_error', 'Path not found')}:\n{path}")
-
+                
         menu_items = (
             item(l['tray_open'], self.toggle_window, default=True),
             pystray.Menu.SEPARATOR,
@@ -466,54 +555,12 @@ class App:
              if hasattr(self, 'tray_icon'):
                  self.create_tray_icon()
 
-    def toggle_window(self, icon=None, item=None):
 
-        if self.root.winfo_viewable():
-            self.root.after(0, self.root.withdraw)
-        else:
-            self.root.after(0, self.show_window)
-
-    def show_window(self):
-
-        self.root.deiconify()
-        self.root.lift()
-        self.root.focus_force()
-
-    def hide_window(self):
-
-        self.root.withdraw()
-
-    def on_minimize(self, event):
+    def on_minimize(self, event=None):
 
         if self.root.state() == 'iconic':
-            self.hide_window()
 
-    def exit_action(self, icon):
-
-        icon.stop()
-        self.root.after(0, self.root.quit)
-
-    def exit_action(self, icon):
-        icon.stop()
-        self.root.after(0, self.root.quit)
-
-
-    def on_closing(self):
-        try:
-
-            self.config['window_geometry'] = self.root.geometry()
-            self.save_config(self.config)
-            
-            if self.observer:
-                self.observer.stop()
-        except Exception as e: 
-            print(f"Error saving geometry: {e}")
-            if hasattr(self, 'tray_icon'):
-                self.tray_icon.stop()
-        self.root.destroy()
-        self.executor.shutdown(wait=False)
-        self.root.destroy()
-        os._exit(0)
+            pass
 
     def check_width_for_burger(self, event):
         if event.widget == self.root:
@@ -617,7 +664,7 @@ class App:
         self.root.deiconify() 
         self.root.title(l['title'].format(VERSION=VERSION))
         
-        icon_path = resource_path("Edr.ico")
+        icon_path = resource_path("Edp.ico")
         if os.path.exists(icon_path):
             try:
                 self.root.iconbitmap(icon_path)
@@ -729,10 +776,11 @@ class App:
         self.grid_container = tk.Frame(self.grid_canvas, bg="#1e1e1e")
         self.canvas_window = self.grid_canvas.create_window((0, 0), window=self.grid_container, anchor="nw")
         self.grid_canvas.configure(yscrollcommand=v_scroll.set)
+        self.grid_canvas.bind("<Enter>", lambda e: self.grid_canvas.bind_all("<MouseWheel>", self._on_grid_mousewheel))
+        self.grid_canvas.bind("<Leave>", lambda e: self.grid_canvas.unbind_all("<MouseWheel>"))
         v_scroll.pack(side="right", fill="y")
         self.grid_canvas.pack(side="left", fill="both", expand=True)
         self.grid_canvas.bind("<Configure>", self.on_canvas_configure)
-        self.grid_canvas.bind_all("<MouseWheel>", lambda e: self.grid_canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
 
     def on_canvas_configure(self, event):
         self.grid_canvas.itemconfig(self.canvas_window, width=event.width)
@@ -802,7 +850,8 @@ class App:
 
     def _async_load_thumb(self, path, btn):
         try:
-            file_hash = str(abs(hash(path + str(os.path.getmtime(path)))))
+            hash_string = f"{path}_{os.path.getmtime(path)}".encode('utf-8')
+            file_hash = hashlib.md5(hash_string).hexdigest()
             conn = sqlite3.connect(CACHE_DB)
             cursor = conn.cursor()
             cursor.execute("SELECT data FROM cache WHERE hash=?", (file_hash,))
@@ -818,7 +867,8 @@ class App:
             conn.close()
             photo = ImageTk.PhotoImage(img)
             self.root.after(0, lambda: self._safe_update_ui(btn, photo, path))
-        except: pass
+        except Exception as e: 
+            logging.error(f"Thumbnail cache error for {path}: {e}")
 
     def _safe_update_ui(self, btn, photo, path):
         try:
@@ -852,7 +902,7 @@ class App:
             self.observer.schedule(Handler(self), path_to_watch, recursive=False)
             self.observer.start()
         except Exception as e:
-            print(f"Ошибка запуска мониторинга: {e}")
+            logging.error(f"Ошибка запуска мониторинга: {e}")
 
     def add_log(self, text, path):
         ts = time.strftime('%H:%M:%S'); entry = f"[{ts}] {text}"
@@ -931,39 +981,42 @@ class App:
 
     def open_settings_window(self, is_initial=False):
         l = LANGS[self.config['lang']]
-        settings_win = tk.Toplevel(self.root)
-        settings_win.title(l['settings'])
+        self.settings_win = tk.Toplevel(self.root)
+        self.settings_win.title(l['settings'])
 
-        settings_win.resizable(False, True)
-        settings_win.geometry("500x890")
-        settings_win.minsize(500, 400)
-        settings_win.configure(bg="#1e1e1e")
-        settings_win.grab_set()
+        saved_settings_geo = self.config.get('settings_geometry')
+        if saved_settings_geo:
+            try:
+                self.settings_win.geometry(saved_settings_geo)
+            except:
+                self.settings_win.geometry("500x890")
+        else:
+            self.settings_win.geometry("500x890")
+        
+        self.settings_win.resizable(True, True)
+        self.settings_win.minsize(500, 400)
+        self.settings_win.configure(bg="#1e1e1e")
+        self.settings_win.grab_set()
         
         if is_initial: 
-            settings_win.protocol("WM_DELETE_WINDOW", self.root.quit)
+            self.settings_win.protocol("WM_DELETE_WINDOW", self.root.quit)
 
-        canvas = tk.Canvas(settings_win, bg="#1e1e1e", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(settings_win, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg="#1e1e1e")
+        self.settings_canvas = tk.Canvas(self.settings_win, bg="#1e1e1e", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.settings_win, orient="vertical", command=self.settings_canvas.yview)
+        scrollable_frame = tk.Frame(self.settings_canvas, bg="#1e1e1e")
 
         scrollable_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self.settings_canvas.configure(scrollregion=self.settings_canvas.bbox("all"))
         )
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=480)
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        self.settings_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=480)
+        self.settings_canvas.configure(yscrollcommand=scrollbar.set)
+        self.settings_canvas.bind("<Enter>", lambda e: self.settings_canvas.bind_all("<MouseWheel>", self._on_settings_mousewheel))
+        self.settings_canvas.bind("<Leave>", lambda e: self.settings_canvas.unbind_all("<MouseWheel>"))
+        self.settings_canvas.pack(side="left", fill="both", expand=True, padx=(10, 0))
         scrollbar.pack(side="right", fill="y")
 
-        def _on_mousewheel(event):
-            if canvas.winfo_exists():
-                 canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-
-
-        settings_win.bind("<MouseWheel>", _on_mousewheel)
 
         container = tk.Frame(scrollable_frame, bg="#1e1e1e")
         container.pack(expand=True, fill="both", padx=20, pady=20)
@@ -998,6 +1051,9 @@ class App:
         for text, key in [(l['add_date'], "show_date"), (l['add_time'], "show_time"), (l['add_body'], "show_body"), (l['add_coords'], "show_coords"), (l['add_cmdr'], "show_cmdr")]:
             tk.Checkbutton(container, text=text, variable=vars[key], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
         
+        min_close_var = tk.BooleanVar(value=self.config.get('minimize_on_close', False))
+        tk.Checkbutton(container, text=l['minimize_on_close'], variable=min_close_var, bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w", pady=(5, 0))
+        
         tk.Label(container, text=l['folders_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(15, 5))
         tk.Checkbutton(container, text=l['sort_folders'], variable=vars["use_folders"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333").pack(anchor="w")
         tk.Checkbutton(container, text=l['load_history'], variable=vars["load_history"], bg="#1e1e1e", fg="#e0e0e0", selectcolor="#333", wraplength=400, justify="left").pack(anchor="w", pady=5)
@@ -1021,26 +1077,58 @@ class App:
         sound_menu.config(bg="#333", fg="white")
         sound_menu.pack(anchor="w", fill="x")
 
+
+
+        tk.Label(container, text=l['volume_label'], fg="#ff8c00", bg="#1e1e1e", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(15, 5))
+        volume_var = tk.DoubleVar(value=self.config.get('volume', 0.5))
+        volume_scale = tk.Scale(container, variable=volume_var, from_=0.0, to=1.0, resolution=0.05, 
+                                orient="horizontal", bg="#1e1e1e", fg="white", highlightthickness=0, length=200)
+        volume_scale.pack(anchor="w")
+        
+        def test_sound():
+            vol = volume_var.get()
+            snd = sound_var.get()
+            if pygame and snd not in ('none', 'Windows Default'):
+                snd_path = os.path.join(get_sounds_dir(), snd)
+                if os.path.exists(snd_path):
+                    sound_obj = pygame.mixer.Sound(snd_path)
+                    sound_obj.set_volume(vol)
+                    sound_obj.play()
+        
+        tk.Button(container, text=l['test_sound'], bg="#444", fg="white", command=test_sound).pack(anchor="w", pady=5)
         tk.Button(container, text=l['check_updates'], bg="#333", fg="#ff8c00", command=lambda: self.check_for_updates(False)).pack(pady=(20, 10))
 
         def save():
-            new_conf = {
-                "screen_dir": s_entry.get(), "target_dir": t_entry.get(), "logs_dir": l_entry.get(), "lang": lang_var.get(),
-                "show_date": vars["show_date"].get(), "show_time": vars["show_time"].get(),
-                "show_body": vars["show_body"].get(), "show_coords": vars["show_coords"].get(),
-                "use_folders": vars["use_folders"].get(), "load_history": vars["load_history"].get(),
-                "time_mode": time_mode_var.get(), "show_cmdr": vars["show_cmdr"].get(),
-                "success_sound": sound_var.get(), "convert_to": conv_var.get()
-            }
-            if os.path.exists(new_conf['screen_dir']) and os.path.exists(new_conf['logs_dir']):
-                self.save_config(new_conf)
-                canvas.unbind_all("<MouseWheel>")
-                settings_win.destroy()
-                self.apply_theme_and_start()
-                self.update_tray_menu() 
-                settings_win.destroy()
-            else: 
-                messagebox.showerror("Error", l['path_error'])
+            try:
+                self.config['settings_geometry'] = self.settings_win.geometry()
+                self.config['window_geometry'] = self.root.geometry() 
+                
+                new_conf = self.config.copy()
+                new_conf.update({
+                    "screen_dir": s_entry.get(), "target_dir": t_entry.get(), "logs_dir": l_entry.get(), "lang": lang_var.get(),
+                    "show_date": vars["show_date"].get(), "show_time": vars["show_time"].get(),
+                    "show_body": vars["show_body"].get(), "show_coords": vars["show_coords"].get(),
+                    "use_folders": vars["use_folders"].get(), "load_history": vars["load_history"].get(),
+                    "time_mode": time_mode_var.get(), "show_cmdr": vars["show_cmdr"].get(),
+                    "success_sound": sound_var.get(), "convert_to": conv_var.get(),
+                    "volume": volume_var.get(),
+                    "minimize_on_close": min_close_var.get()
+                })
+                
+                if os.path.exists(new_conf['screen_dir']) and os.path.exists(new_conf['logs_dir']):
+                    self.save_config(new_conf)
+
+                    self.settings_canvas.unbind_all("<MouseWheel>")
+                    self.settings_win.destroy()
+                    
+                    self.apply_theme_and_start()
+                    self.update_tray_menu() 
+                else: 
+                    messagebox.showerror("Error", l['path_error'])
+                    
+            except Exception as e:
+                logging.error(f"Ошибка при сохранении настроек: {e}", exc_info=True)
+                messagebox.showerror("Критическая ошибка", f"Не удалось сохранить настройки. Подробности в логе.")
         
         tk.Button(container, text=l['save_btn'], bg="#ff8c00", command=save, font=("Segoe UI", 10, "bold"), width=20).pack(pady=(0, 25))
     def create_field(self, parent, label, val):
@@ -1100,23 +1188,34 @@ class App:
                 except Exception as e: messagebox.showerror("Error", str(e))
 
 class Handler(FileSystemEventHandler):
+    
     def __init__(self, app): 
         self.app = app
-
+    def wait_for_file(self, filepath, timeout=10):
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                with open(filepath, 'a'):
+                    return True
+            except IOError:
+                time.sleep(0.2)
+        return False
     def on_created(self, event):
-
         if event.is_directory or not event.src_path.lower().endswith(('.png', '.jpg', '.bmp', '.jpeg')): 
             return
         
         src_path = os.path.normpath(os.path.abspath(event.src_path))
-
+        filename = os.path.basename(src_path)
         config_dir = os.path.normpath(os.path.abspath(self.app.config['screen_dir']))
-        
+
         if os.path.dirname(src_path).lower() != config_dir.lower(): 
             return
 
-        time.sleep(1.5) 
-        if not os.path.exists(src_path): 
+        if "(" in filename and ")" in filename:
+            return
+
+        if not self.wait_for_file(src_path):
+            logging.error(f"Таймаут ожидания файла скриншота: {src_path}")
             return
 
         info = self.app.reader.get_info(time_mode=self.app.config.get('time_mode', 'local'))
@@ -1165,19 +1264,28 @@ class Handler(FileSystemEventHandler):
                 shutil.move(src_path, final_path)
 
             sound_name = self.app.config.get('success_sound', 'none')
+            volume = self.app.config.get('volume', 0.5)
+            
             if sound_name == "Windows Default":
-
                 winsound.MessageBeep(winsound.MB_ICONASTERISK)
             elif sound_name != 'none':
                 sound_path = os.path.join(get_sounds_dir(), sound_name)
                 if os.path.exists(sound_path):
-                    winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                    if pygame:
+                        try:
+                            snd_obj = pygame.mixer.Sound(sound_path)
+                            snd_obj.set_volume(volume)
+                            snd_obj.play()
+                        except Exception as e:
+                            logging.error(f"Failed to play sound with pygame: {e}")
+                    else:
+                        winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
 
             self.app.root.after(100, lambda: self.app.add_log(new_fn, final_path))
             
         except Exception as e:
-            print(f"Ошибка при обработке скриншота: {e}")
-
+            logging.error(f"Ошибка при обработке скриншота: {e}")
+        
     def on_deleted(self, event): 
         if event.is_directory: return
         deleted_path = os.path.abspath(event.src_path)
