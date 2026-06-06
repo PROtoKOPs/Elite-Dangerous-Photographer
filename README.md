@@ -29,3 +29,21 @@ You can fully customize what is included the filename:
 Your history deserves beautiful names. Fly safe, Commander! o7
 
 > Part of the code was written by an AI under the strict supervision of a live pilot. Bugs (if any) are a machine uprising, features are the result of collaborative work.
+
+## Screenshots
+### Grid View
+<img width="500" alt="grid" src="https://github.com/user-attachments/assets/06a99c0a-093a-4c49-a153-21ae8c714479" />
+
+### List View
+<img width="500" alt="list" src="https://github.com/user-attachments/assets/1ce7a879-2cfb-4172-be8b-69ede0909d22" />
+
+### Settings
+<img width="250" alt="settings-1" src="https://github.com/user-attachments/assets/3b920f6c-f514-456b-a28e-67d7869b7c50" />
+</br>
+<img width="250" alt="settings-2" src="https://github.com/user-attachments/assets/c5fe5710-e410-435c-936c-f561882a7846" />
+
+### Formats
+<img width="247" height="151" alt="formats" src="https://github.com/user-attachments/assets/8ddfcec0-f7b7-4a3d-878c-aebe5b756bbe" />
+
+### Custom Notification Sound
+<img width="556" height="158" alt="notification-sound" src="https://github.com/user-attachments/assets/e9c62439-cf64-4489-9809-3e10db95a619" />
